@@ -944,7 +944,7 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group-wrapper batch-field" id="inwardsBatchField">
-                            <label for="inwardsBatchNumber">Batch Number *</label>
+                            <label for="inwardsBatchNumber">Batch Number</label>
                             <input 
                                 type="text" 
                                 id="inwardsBatchNumber" 
@@ -1069,7 +1069,7 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group-wrapper batch-field" id="outwardsBatchField">
-                            <label for="outwardsBatchNumber">Batch Number *</label>
+                            <label for="outwardsBatchNumber">Batch Number</label>
                             <input 
                                 type="text" 
                                 id="outwardsBatchNumber" 
@@ -1777,20 +1777,12 @@
         // ============ BATCH FIELD TOGGLE ============
         
         async function toggleBatchField(type) {
-            const remarkId = document.getElementById(`${type}Remark`).value;
-            const remarks = await FirebaseManager.getRemarks();
-            const remark = remarks.find(r => r.id === remarkId);
             const batchField = document.getElementById(`${type}BatchField`);
             const batchInput = document.getElementById(`${type}BatchNumber`);
             
-            if (remark && remark.type === 'batch') {
-                batchField.classList.add('active');
-                batchInput.required = true;
-            } else {
-                batchField.classList.remove('active');
-                batchInput.required = false;
-                batchInput.value = '';
-            }
+            // Always show batch field - it's optional
+            batchField.classList.add('active');
+            batchInput.required = false;
         }
 
         // ============ INWARDS MANAGEMENT ============
@@ -1863,12 +1855,7 @@
                     return;
                 }
                 
-                // Check if batch number is required but not provided
-                if (remark.type === 'batch' && !batchNumber.trim()) {
-                    showAlert('inwardsError', 'Batch number is required for this remark!', 'error');
-                    showLoading('addInwardsBtn', false);
-                    return;
-                }
+                
                 
                 const record = {
                     productId: productId,
@@ -1981,12 +1968,7 @@
                     return;
                 }
                 
-                // Check if batch number is required but not provided
-                if (remark.type === 'batch' && !batchNumber.trim()) {
-                    showAlert('outwardsError', 'Batch number is required for this remark!', 'error');
-                    showLoading('addOutwardsBtn', false);
-                    return;
-                }
+                
                 
                 // Calculate current stock
                 const inwards = await FirebaseManager.getInwards();
