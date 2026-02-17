@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Management System - Tyrone Agro Chemicals Private Limited</title>
+    <!-- Add jsPDF library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -317,6 +320,39 @@
             margin-top: 20px;
         }
 
+        /* PDF Download Button */
+        .pdf-download-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pdf-download-btn:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+        }
+
+        .pdf-download-btn i {
+            font-size: 16px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
         /* ============ ALERTS ============ */
         .alert {
             padding: 15px 20px;
@@ -627,6 +663,21 @@
             100% { transform: rotate(360deg); }
         }
 
+        /* Toast notification */
+        #pdfToast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 5px;
+            color: white;
+            font-weight: 600;
+            z-index: 9999;
+            display: none;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
         /* ============ RESPONSIVE ============ */
         @media (max-width: 1200px) {
             .filter-row {
@@ -634,7 +685,6 @@
             }
         }
 
-        /* ============ ANIMATIONS & EFFECTS ============ */
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -661,7 +711,6 @@
             animation: fadeIn 0.3s ease-in;
         }
 
-        /* Green highlight for active elements */
         select:focus {
             accent-color: #2ecc71;
         }
@@ -1152,7 +1201,12 @@
         <!-- ============ LIVE STOCK TAB ============ -->
         <div class="tab-content" id="live-stock">
             <div class="form-section">
-                <h2>Current Stock Status</h2>
+                <div class="header-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
+                    <h2 style="margin: 0;">Current Stock Status</h2>
+                    <button class="pdf-download-btn" onclick="downloadLiveStockPDF()">
+                        <span>📥</span> Download Live Stock PDF
+                    </button>
+                </div>
                 <p style="color: #666; margin-bottom: 20px;">Closing Stock = Total Inwards Qty − Total Outwards Qty</p>
                 <table id="liveStockTable" class="stock-table">
                     <thead>
@@ -1267,6 +1321,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Toast notification element -->
+    <div id="pdfToast"></div>
 
     <!-- ============ FIREBASE SDK ============ -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1486,13 +1543,13 @@
                 hour12: true
             });
         }
-  function getCurrentDateTime() {
+        
+        function getCurrentDateTime() {
             const now = new Date();
             now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
             return now.toISOString().slice(0, 16);
         }
 
-      
         function switchTab(tabName) {
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
@@ -1520,6 +1577,177 @@
             } else if (tabName === 'outwards') {
                 populateFilterDropdowns('outwards');
             }
+        }
+
+        // ============ PDF DOWNLOAD FUNCTION ============
+        
+        async function downloadLiveStockPDF() {
+            try {
+                showToast('Generating PDF...', 'info');
+                
+                // Get data
+                const products = await FirebaseManager.getProducts();
+                const inwards = await FirebaseManager.getInwards();
+                const outwards = await FirebaseManager.getOutwards();
+                
+                if (products.length === 0) {
+                    showToast('No products to export', 'error');
+                    return;
+                }
+                
+                // Prepare stock data
+                const stockData = products.map((product, index) => {
+                    const totalInwards = inwards
+                        .filter(i => i.productId === product.id)
+                        .reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0);
+                    
+                    const totalOutwards = outwards
+                        .filter(o => o.productId === product.id)
+                        .reduce((sum, o) => sum + (parseFloat(o.quantity) || 0), 0);
+                    
+                    const closingStock = totalInwards - totalOutwards;
+                    
+                    return {
+                        sno: index + 1,
+                        product: product.name,
+                        inwards: totalInwards.toFixed(2),
+                        outwards: totalOutwards.toFixed(2),
+                        closing: closingStock.toFixed(2),
+                        status: closingStock < 0 ? 'Negative' : 'Normal'
+                    };
+                });
+                
+                // Calculate totals
+                const totalInwardsAll = stockData.reduce((sum, item) => sum + parseFloat(item.inwards), 0).toFixed(2);
+                const totalOutwardsAll = stockData.reduce((sum, item) => sum + parseFloat(item.outwards), 0).toFixed(2);
+                const totalClosingAll = stockData.reduce((sum, item) => sum + parseFloat(item.closing), 0).toFixed(2);
+                
+                // Create PDF
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'mm',
+                    format: 'a4'
+                });
+                
+                // Add company header
+                doc.setFillColor(46, 204, 113);
+                doc.rect(0, 0, 297, 35, 'F');
+                
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(20);
+                doc.setFont('helvetica', 'bold');
+                doc.text('TYRONE AGRO CHEMICALS', 148.5, 15, { align: 'center' });
+                
+                doc.setFontSize(12);
+                doc.setFont('helvetica', 'normal');
+                doc.text('Live Stock Report', 148.5, 25, { align: 'center' });
+                
+                // Date
+                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(10);
+                doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 45);
+                
+                // Prepare table data
+                const tableData = stockData.map(item => [
+                    item.sno.toString(),
+                    item.product,
+                    item.inwards,
+                    item.outwards,
+                    item.closing,
+                    item.status
+                ]);
+                
+                // Add table
+                doc.autoTable({
+                    startY: 50,
+                    head: [['S.No.', 'Product Name', 'Total Inwards', 'Total Outwards', 'Closing Stock', 'Status']],
+                    body: tableData,
+                    theme: 'grid',
+                    headStyles: { 
+                        fillColor: [46, 204, 113], 
+                        textColor: [255, 255, 255], 
+                        fontStyle: 'bold',
+                        fontSize: 11
+                    },
+                    styles: { 
+                        fontSize: 10, 
+                        cellPadding: 5,
+                        halign: 'center'
+                    },
+                    columnStyles: {
+                        0: { cellWidth: 20 },
+                        1: { cellWidth: 80 },
+                        2: { cellWidth: 40 },
+                        3: { cellWidth: 40 },
+                        4: { cellWidth: 40 },
+                        5: { cellWidth: 35 }
+                    },
+                    didDrawCell: function(data) {
+                        // Color coding for status column
+                        if (data.section === 'body' && data.column.index === 5) {
+                            const status = data.cell.raw;
+                            if (status === 'Negative') {
+                                doc.setTextColor(220, 53, 69); // Red
+                            } else {
+                                doc.setTextColor(40, 167, 69); // Green
+                            }
+                        }
+                    }
+                });
+                
+                // Add summary
+                const finalY = doc.lastAutoTable.finalY + 15;
+                
+                doc.setFillColor(240, 240, 240);
+                doc.rect(20, finalY, 257, 25, 'F');
+                
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'bold');
+                doc.text('Summary', 25, finalY + 7);
+                
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.text(`Total Products: ${stockData.length}`, 25, finalY + 15);
+                doc.text(`Total Inwards: ${totalInwardsAll} LTR/KG`, 100, finalY + 15);
+                doc.text(`Total Outwards: ${totalOutwardsAll} LTR/KG`, 160, finalY + 15);
+                doc.text(`Net Stock: ${totalClosingAll} LTR/KG`, 220, finalY + 15);
+                
+                // Footer
+                doc.setFontSize(8);
+                doc.setTextColor(100, 100, 100);
+                doc.text('This is a system generated report from Tyrone Agro Chemicals IMS', 148.5, 190, { align: 'center' });
+                
+                // Save PDF
+                doc.save(`Live_Stock_${new Date().toISOString().split('T')[0]}.pdf`);
+                
+                showToast('PDF downloaded successfully!', 'success');
+                
+            } catch (error) {
+                console.error('Error generating PDF:', error);
+                showToast('Error generating PDF: ' + error.message, 'error');
+            }
+        }
+
+        // Simple toast function
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('pdfToast');
+            
+            // Set color based on type
+            if (type === 'success') {
+                toast.style.backgroundColor = '#28a745';
+            } else if (type === 'error') {
+                toast.style.backgroundColor = '#dc3545';
+            } else {
+                toast.style.backgroundColor = '#17a2b8';
+            }
+            
+            toast.textContent = message;
+            toast.style.display = 'block';
+            
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
         }
 
         // ============ AUTHENTICATION ============
@@ -1855,8 +2083,6 @@
                     return;
                 }
                 
-                
-                
                 const record = {
                     productId: productId,
                     quantity: parseFloat(quantity),
@@ -1967,8 +2193,6 @@
                     showLoading('addOutwardsBtn', false);
                     return;
                 }
-                
-                
                 
                 // Calculate current stock
                 const inwards = await FirebaseManager.getInwards();
@@ -2330,11 +2554,6 @@
             showLoading('loginBtn', true);
             
             try {
-                // For simplicity, we'll use Firebase Authentication
-                // Pre-create an admin user in Firebase Console with:
-                // Email: admin@tyrone.com
-                // Password: admin123
-                
                 const userCredential = await auth.signInWithEmailAndPassword(email, password);
                 
                 showLoginPage(false);
